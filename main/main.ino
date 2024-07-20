@@ -1,11 +1,14 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
+#include <WiFiClientSecure.h> // Wifi modules for sending data
 #include <DNSServer.h>
-#include <LittleFS.h>
-#include "config.h"
+#include <LittleFS.h> // Fs for logging
+
+#include "config.h" // imports
 #include "webserver.h"
 #include "sensor.h"
 #include "logging.h"
+
 #include <NTPClient.h> // Time
 #include <WiFiUdp.h>
 
@@ -108,12 +111,23 @@ void loop() {
             temperature = sensor.readTemperature();
         }
 
-        if (!isnan(humidity) && !isnan(temperature)) {
-            HTTPClient http;
-            WiFiClient client;
+        // Create a client based on protocol
+        String apiEndpoint = String(config.apiEndpoint); // Convert c-type str to String obj  
+        bool isHttps = apiEndpoint.startsWith("https://");
+        HTTPClient http;
+        WiFiClient client;
+        WiFiClientSecure secureClient;
 
-            // Use the new begin method with WiFiClient and URL
-            http.begin(client, config.apiEndpoint);
+        if (isHttps) {
+          // HTTPS connection
+          secureClient.setInsecure(); // For simplicity, disable certificate validation (not recommended for production)
+          http.begin(secureClient, apiEndpoint + "/sensor/data/write");
+        } else {
+          // HTTP connection
+          http.begin(client, apiEndpoint + "/sensor/data/write");
+        }
+
+        if (!isnan(humidity) && !isnan(temperature)) {
             http.addHeader("Content-Type", "application/json");
             http.addHeader("X-Sensor-Id", config.sensorId);
             http.addHeader("X-Sensor-Api-Key", config.apiKey);
