@@ -24,6 +24,19 @@ void Logger::log(const String& message) {
 }
 
 void Logger::appendToFile(const String& message) {
+    // Basic rotation: if file > 50KB, clear it
+    File checkFile = LittleFS.open(logFileName, "r");
+    if (checkFile && checkFile.size() > 51200) {
+        checkFile.close();
+        File clearFile = LittleFS.open(logFileName, "w");
+        if (clearFile) {
+            clearFile.println("--- Log Rotated ---");
+            clearFile.close();
+        }
+    } else if (checkFile) {
+        checkFile.close();
+    }
+
     File file = LittleFS.open(logFileName, "a");
     if (!file) {
         Serial.println("Failed to open log file");

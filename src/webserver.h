@@ -25,6 +25,10 @@ private:
     void handleApiLogs(AsyncWebServerRequest *request);
     void handleApiData(AsyncWebServerRequest *request);
     void handleApiSystem(AsyncWebServerRequest *request);
+    void handleApiScanI2C(AsyncWebServerRequest *request);
+    
+    // Auth
+    bool authenticate(AsyncWebServerRequest *request);
     
     // OTA Handlers
     void handleUpdateUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
