@@ -1,10 +1,10 @@
 #include "BME280Sensor.h"
 
-BME280Sensor::BME280Sensor(int pin) : _pin(pin) {}
+BME280Sensor::BME280Sensor(int pin, int i2cAddress) : _pin(pin), _i2cAddress(i2cAddress) {}
 
 void BME280Sensor::begin() {
-    if (!bme.begin(0x76)) { 
-        Serial.println("Could not find a valid BME280 sensor, check wiring!");
+    if (!bme.begin(_i2cAddress)) { 
+        Serial.printf("Could not find a valid BME280 sensor at 0x%02X!\n", _i2cAddress);
     }
 }
 

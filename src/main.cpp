@@ -24,6 +24,7 @@
 #include "sensor.h"
 #include "logging.h"
 #include "mqtt_manager.h"
+#include <Wire.h>
 
 #include <NTPClient.h>
 #include <WiFiUdp.h>
@@ -100,6 +101,9 @@ void setup() {
     }
 
     config.load();
+    Wire.begin(); // Default pins
+    
+    timeClient.setTimeOffset(config.utcOffset);
     Serial.println(getTime());
 
     if (config.testingMode) {

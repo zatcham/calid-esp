@@ -6,12 +6,13 @@
 
 class BME280Sensor : public SensorInterface {
 public:
-    BME280Sensor(int pin); // pin here represents SDA for I2C usually
+    BME280Sensor(int pin, int i2cAddress = 0x76); 
     void begin() override;
     SensorReadings read() override;
 private:
     Adafruit_BME280 bme;
     int _pin;
+    int _i2cAddress;
 };
 
 #endif

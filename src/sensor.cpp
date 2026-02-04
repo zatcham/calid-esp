@@ -28,7 +28,7 @@ void Sensor::begin() {
         } else if (type == 22) {
             impl = new DHTSensor(pin, DHT22);
         } else if (type == 2) {
-            impl = new BME280Sensor(pin);
+            impl = new BME280Sensor(pin, config.sensors[i].i2cAddress);
         }
 
         if (impl) {
@@ -39,29 +39,10 @@ void Sensor::begin() {
             activeSensorCount++;
         }
     }
-
-    // Legacy fallback if no sensors defined in array but defined in legacy fields
-    if (activeSensorCount == 0 && config.sensorPin != 0) {
-        SensorInterface* impl = nullptr;
-        if (config.sensorType == 0 || config.sensorType == 11) {
-            impl = new DHTSensor(config.sensorPin, DHT11);
-        } else if (config.sensorType == 1 || config.sensorType == 22) {
-            impl = new DHTSensor(config.sensorPin, DHT22);
-        } else if (config.sensorType == 2) {
-            impl = new BME280Sensor(config.sensorPin);
-        }
-
-        if (impl) {
-            impl->begin();
-            sensors.push_back(impl);
-            allSensorData[activeSensorCount].pin = config.sensorPin;
-            activeSensorCount++;
-        }
-    }
 }
 
 void Sensor::update() {
-    for (size_t i = 0; i < sensors.size() && i < MAX_SENSORS; i++) {
+    for (size_t i = 0; i < sensors.size() && i < (size_t)activeSensorCount; i++) {
         allSensorData[i] = sensors[i]->read();
     }
 }
