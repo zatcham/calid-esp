@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Calid ESP Installer</title>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #f0f2f5;
+    }
+    h1 { margin-bottom: 2rem; }
+    p { margin-bottom: 2rem; color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Install Calid Firmware</h1>
+  <p>Connect your ESP32 or ESP8266 device via USB and click the button below.</p>
+  <esp-web-install-button manifest="manifest.json"></esp-web-install-button>
+</body>
+</html>
