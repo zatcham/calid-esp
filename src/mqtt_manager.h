@@ -5,13 +5,19 @@
 #include <WiFiClientSecure.h>
 #include <WiFiClient.h>
 #include "config.h"
+#include <functional>
 
 class MqttManager {
 public:
+    typedef std::function<void(String topic, String payload)> CommandCallback;
+
     MqttManager();
     void begin();
     void loop();
-    void publish(const char* topic, const char* payload);
+    void publishTelemetry(const char* payload);
+    void publishStatus(const char* status);
+    void publishRaw(const char* topic, const char* payload, bool retained = false);
+    void setCommandCallback(CommandCallback cb);
     bool isConnected();
 
 private:
@@ -19,8 +25,10 @@ private:
     WiFiClientSecure espClientSecure;
     PubSubClient client;
     long lastReconnectAttempt;
+    CommandCallback _commandCallback;
     
     void reconnect();
+    void internalCallback(char* topic, byte* payload, unsigned int length);
 };
 
 extern MqttManager mqttManager;

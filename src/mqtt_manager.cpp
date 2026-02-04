@@ -3,7 +3,7 @@
 
 MqttManager mqttManager;
 
-MqttManager::MqttManager() : lastReconnectAttempt(0) {}
+MqttManager::MqttManager() : lastReconnectAttempt(0), _commandCallback(nullptr) {}
 
 void MqttManager::begin() {
     if (!config.mqttEnabled) return;
@@ -14,7 +14,7 @@ void MqttManager::begin() {
         #ifdef ESP8266
         espClientSecure.setInsecure();
         #else
-        espClientSecure.setInsecure(); // Disable cert check for simplicity
+        espClientSecure.setInsecure();
         #endif
         client.setClient(espClientSecure);
     } else {
@@ -22,6 +22,9 @@ void MqttManager::begin() {
     }
 
     client.setServer(config.mqttBroker, config.mqttPort);
+    client.setCallback([this](char* topic, byte* payload, unsigned int length) {
+        this->internalCallback(topic, payload, length);
+    });
 }
 
 void MqttManager::loop() {
@@ -43,11 +46,24 @@ void MqttManager::reconnect() {
 
     Serial.print("Attempting MQTT connection...");
     
-    String clientId = "ESPClient-";
-    clientId += String(config.sensorId); // Use sensor ID as client ID if possible
+    String clientId = "CalidESP-";
+    clientId += config.getAdoptionCode();
 
-    if (client.connect(clientId.c_str(), config.mqttUser, config.mqttPassword)) {
+    String statusTopic = "sensors/" + String(config.sensorId) + "/status";
+    
+    // Connect with LWT (Last Will and Testament)
+    if (client.connect(clientId.c_str(), config.mqttUser, config.mqttPassword, 
+                       statusTopic.c_str(), 1, true, "offline")) {
         Serial.println("connected");
+        
+        // Publish online status
+        client.publish(statusTopic.c_str(), "online", true);
+        
+        // Subscribe to commands
+        String commandTopic = "sensors/" + String(config.sensorId) + "/commands";
+        client.subscribe(commandTopic.c_str());
+        
+        Serial.printf("Subscribed to %s\n", commandTopic.c_str());
     } else {
         Serial.print("failed, rc=");
         Serial.print(client.state());
@@ -55,20 +71,36 @@ void MqttManager::reconnect() {
     }
 }
 
-void MqttManager::publish(const char* topic, const char* payload) {
-    if (!config.mqttEnabled) return;
-    
-    if (!client.connected()) {
-       // Optionally try to reconnect immediately or just drop?
-       // relying on loop() to reconnect.
-       return;
+void MqttManager::publishTelemetry(const char* payload) {
+    String topic = "sensors/" + String(config.sensorId) + "/telemetry";
+    publishRaw(topic.c_str(), payload);
+}
+
+void MqttManager::publishStatus(const char* status) {
+    String topic = "sensors/" + String(config.sensorId) + "/status";
+    publishRaw(topic.c_str(), status, true);
+}
+
+void MqttManager::publishRaw(const char* topic, const char* payload, bool retained) {
+    if (!config.mqttEnabled || !client.connected()) return;
+    client.publish(topic, payload, retained);
+}
+
+void MqttManager::setCommandCallback(CommandCallback cb) {
+    _commandCallback = cb;
+}
+
+void MqttManager::internalCallback(char* topic, byte* payload, unsigned int length) {
+    String payloadStr = "";
+    for (unsigned int i = 0; i < length; i++) {
+        payloadStr += (char)payload[i];
     }
     
-    String fullTopic = String(config.mqttTopicPrefix);
-    if (fullTopic.length() > 0 && !fullTopic.endsWith("/")) fullTopic += "/";
-    fullTopic += topic;
+    Serial.printf("MQTT Message [%s]: %s\n", topic, payloadStr.c_str());
     
-    client.publish(fullTopic.c_str(), payload);
+    if (_commandCallback) {
+        _commandCallback(String(topic), payloadStr);
+    }
 }
 
 bool MqttManager::isConnected() {

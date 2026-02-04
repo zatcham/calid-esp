@@ -120,6 +120,20 @@ void setup() {
     }
 
     webServer.begin();
+
+    mqttManager.setCommandCallback([](String topic, String payload) {
+        String ackTopic = "sensors/" + String(config.sensorId) + "/ack";
+        if (payload == "restart") {
+            Serial.println("Remote restart command received");
+            mqttManager.publishRaw(ackTopic.c_str(), "restarting");
+            delay(500);
+            ESP.restart();
+        } else if (payload == "toggle_sim") {
+            config.testingMode = !config.testingMode;
+            Serial.printf("Simulation mode toggled: %s\n", config.testingMode ? "ON" : "OFF");
+            mqttManager.publishRaw(ackTopic.c_str(), config.testingMode ? "sim_on" : "sim_off");
+        }
+    });
 }
 
 void loop() {
@@ -154,20 +168,29 @@ void loop() {
         }
 
         // MQTT Publish all sensors
-        for (int i = 0; i < activeSensorCount; i++) {
-            if (allSensorData[i].valid) {
-                String json = "{\"pin\":" + String(allSensorData[i].pin) + 
-                              ",\"sensorType\":\"" + allSensorData[i].sensorType + "\",\"readings\":[";
-                for (size_t j = 0; j < allSensorData[i].readings.size(); j++) {
-                    json += "{\"type\":\"" + allSensorData[i].readings[j].type + 
-                            "\",\"value\":" + String(allSensorData[i].readings[j].value) + 
-                            ",\"unit\":\"" + allSensorData[i].readings[j].unit + "\"}";
-                    if (j < allSensorData[i].readings.size() - 1) json += ",";
+        if (mqttManager.isConnected()) {
+            JsonDocument mqttDoc;
+            mqttDoc["sensorId"] = config.sensorId;
+            mqttDoc["adoptionCode"] = config.getAdoptionCode();
+            JsonArray sensorsArr = mqttDoc["sensors"].to<JsonArray>();
+
+            for (int i = 0; i < activeSensorCount; i++) {
+                if (allSensorData[i].valid) {
+                    JsonObject s = sensorsArr.add<JsonObject>();
+                    s["pin"] = allSensorData[i].pin;
+                    s["type"] = allSensorData[i].sensorType;
+                    JsonArray rd = s["readings"].to<JsonArray>();
+                    for (const auto& r : allSensorData[i].readings) {
+                        JsonObject ro = rd.add<JsonObject>();
+                        ro["type"] = r.type;
+                        ro["value"] = r.value;
+                        ro["unit"] = r.unit;
+                    }
                 }
-                json += "]}";
-                String topic = "data/pin" + String(allSensorData[i].pin);
-                mqttManager.publish(topic.c_str(), json.c_str());
             }
+            String mqttPayload;
+            serializeJson(mqttDoc, mqttPayload);
+            mqttManager.publishTelemetry(mqttPayload.c_str());
         }
 
         // HTTP POST all sensors
