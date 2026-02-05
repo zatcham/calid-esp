@@ -13,116 +13,90 @@
 #include <WiFiClientSecure.h> 
 #include <DNSServer.h>
 
-#if defined(ESP8266)
 #include <LittleFS.h>
-#else
-#include <LittleFS.h> // Uses lorol/LittleFS_esp32
-#endif
 
 #include "config.h"
-#include "webserver.h"
+#include "calid_webserver.h"
 #include "sensor.h"
 #include "logging.h"
 #include "mqtt_manager.h"
-#include <Wire.h>
+#include "wifi_setup.h"
+#include "ota_manager.h"
 
 #include <NTPClient.h>
 #include <WiFiUdp.h>
+#include <Wire.h>
+#include <ArduinoJson.h>
 
-// Define D2 for ESP32 if not defined (ESP8266 has it)
 #ifndef D2
 #define D2 4
 #endif
 
+const String SW_VERSION = "1.2.0";
 const byte DNS_PORT = 53;
 IPAddress apIP(192, 168, 4, 1);
 DNSServer dnsServer;
 Sensor sensor;
-WebServer webServer;
+CalidWebServer webServer;
 Logger logger("/log.txt");
 
 WiFiUDP udp;
-NTPClient timeClient(udp, "pool.ntp.org", 0, 60000); // NTP server, UTC offset, update interval
+NTPClient timeClient(udp, "pool.ntp.org", 0, 60000);
 bool timeSynced = false;
 
-// Function Prototypes
-void startAP();
 void connectWiFi();
 String getTime();
 
-void startAP() {
-    WiFi.mode(WIFI_AP);
-    WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-    WiFi.softAP("ESP_Config");
-
-    dnsServer.start(DNS_PORT, "*", apIP);
-
-    Serial.println("Started Access Point 'ESP_Config'");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.softAPIP());
-}
-
 void connectWiFi() {
-    WiFi.mode(WIFI_STA);
-    Serial.println("Configured SSID: ");
-    Serial.print(config.ssid);
-    WiFi.begin(config.ssid, config.password);
-    Serial.print("Connecting to WiFi...");
-    int retries = 30;
-    while (WiFi.status() != WL_CONNECTED && retries > 0) {
-        delay(500);
-        Serial.print(".");
-        retries--;
-    }
+    runWifiSetup();
 
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("Failed to connect.");
-        startAP();
-    } else {
-        Serial.println(" connected.");
-        Serial.print("IP address: ");
-        Serial.println(WiFi.localIP());
-        // Initialize NTP client and fetch the time
-        timeClient.begin();
-        timeClient.update();
-        timeSynced = timeClient.getEpochTime() > 0;
-    }
+    Serial.println("WiFi Connected!");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+    
+    timeClient.begin();
+    timeClient.setPoolServerName(config.ntpServer);
+    timeClient.update();
+    timeSynced = timeClient.getEpochTime() > 0;
 }
 
 void setup() {
     Serial.begin(115200);
-    delay(10);
-    Serial.println("Device starting..");
+    delay(1000);
+    Serial.println("\n\n===============================");
+    Serial.println("Calid ESP Sensor Gateway");
+    Serial.printf("Version: %s\n", SW_VERSION.c_str());
+    Serial.println("===============================\n");
     
-    // Initialize File System
+    #ifdef ESP32
+    if(!LittleFS.begin(true)){
+    #else
     if(!LittleFS.begin()){
+    #endif
         Serial.println("LittleFS Mount Failed");
-        return;
     }
 
     config.load();
-    Wire.begin(); // Default pins
+    logger.begin();
+    logger.log("System starting v" + SW_VERSION + " [AdoptionCode: " + config.getAdoptionCode() + "]");
+    
+    Wire.begin(); 
     
     timeClient.setTimeOffset(config.utcOffset);
-    Serial.println(getTime());
 
     if (config.testingMode) {
-        Serial.println("Testing mode enabled. Fake data will be generated.");
+        Serial.println("Testing mode enabled.");
     } else {
         sensor.begin();
     }
 
-    if (strlen(config.ssid) == 0 || strlen(config.password) == 0) {
-        startAP();
-    } else {
-        connectWiFi();
-        mqttManager.begin();
-    }
-
+    connectWiFi();
+    mqttManager.begin();
     webServer.begin();
 
     mqttManager.setCommandCallback([](String topic, String payload) {
         String ackTopic = "sensors/" + String(config.sensorId) + "/ack";
+        
         if (payload == "restart") {
             Serial.println("Remote restart command received");
             mqttManager.publishRaw(ackTopic.c_str(), "restarting");
@@ -130,25 +104,62 @@ void setup() {
             ESP.restart();
         } else if (payload == "toggle_sim") {
             config.testingMode = !config.testingMode;
-            Serial.printf("Simulation mode toggled: %s\n", config.testingMode ? "ON" : "OFF");
+            config.save();
             mqttManager.publishRaw(ackTopic.c_str(), config.testingMode ? "sim_on" : "sim_off");
+        } else if (payload == "update") {
+            if (strlen(config.firmwareUrl) > 0) {
+                mqttManager.publishRaw(ackTopic.c_str(), "updating");
+                OtaManager::triggerUpdate(config.firmwareUrl);
+            } else {
+                mqttManager.publishRaw(ackTopic.c_str(), "update_failed_no_url");
+            }
+        } else if (payload.startsWith("{")) {
+            JsonDocument updateDoc;
+            DeserializationError err = deserializeJson(updateDoc, payload);
+            if (!err) {
+                if (!updateDoc["sensorId"].isNull()) strlcpy(config.sensorId, updateDoc["sensorId"], sizeof(config.sensorId));
+                if (!updateDoc["utcOffset"].isNull()) config.utcOffset = updateDoc["utcOffset"];
+                if (!updateDoc["ntpServer"].isNull()) strlcpy(config.ntpServer, updateDoc["ntpServer"], sizeof(config.ntpServer));
+                if (!updateDoc["mqttTopicPrefix"].isNull()) strlcpy(config.mqttTopicPrefix, updateDoc["mqttTopicPrefix"], sizeof(config.mqttTopicPrefix));
+                
+                config.save();
+                mqttManager.publishRaw(ackTopic.c_str(), "config_updated");
+                Serial.println("Remote configuration updated via MQTT");
+            }
         }
     });
 }
 
+unsigned long lastDataLog = 0;
+unsigned long lastHeartbeat = 0;
+
 void loop() {
-    webServer.handleClient(); // Handle AP DNS requests
+    webServer.handleClient(); 
     mqttManager.loop();
+    OtaManager::loop();
+
+    unsigned long now = millis();
+
+    // Periodic Heartbeat / Status
+    if (now - lastHeartbeat > 300000 || lastHeartbeat == 0) { // 5 mins
+        lastHeartbeat = now;
+        if (mqttManager.isConnected()) {
+            mqttManager.publishStatus("online");
+        }
+    }
 
     if (WiFi.status() == WL_CONNECTED) {
         if (!timeSynced) {
-            delay(15000); // Wait for NTP sync
+            timeClient.update();
+            timeSynced = timeClient.getEpochTime() > 28800; // After 1970
         }
 
+        // Only run data collection every 60s
+        if (now - lastDataLog < 60000 && lastDataLog != 0) return;
+        lastDataLog = now;
+
         if (config.testingMode) {
-            // Generate fake data for multiple "sensors"
             activeSensorCount = 2;
-            
             allSensorData[0].pin = 4;
             allSensorData[0].sensorType = "DHT22";
             allSensorData[0].valid = true;
@@ -167,11 +178,18 @@ void loop() {
             sensor.update();
         }
 
-        // MQTT Publish all sensors
         if (mqttManager.isConnected()) {
             JsonDocument mqttDoc;
             mqttDoc["sensorId"] = config.sensorId;
             mqttDoc["adoptionCode"] = config.getAdoptionCode();
+            
+            SystemHealth health = config.getSystemHealth();
+            JsonObject sys = mqttDoc["system"].to<JsonObject>();
+            sys["rssi"] = health.rssi;
+            sys["uptime"] = health.uptime;
+            sys["freeHeap"] = health.freeHeap;
+            sys["resetReason"] = health.resetReason;
+
             JsonArray sensorsArr = mqttDoc["sensors"].to<JsonArray>();
 
             for (int i = 0; i < activeSensorCount; i++) {
@@ -193,7 +211,6 @@ void loop() {
             mqttManager.publishTelemetry(mqttPayload.c_str());
         }
 
-        // HTTP POST all sensors
         String apiEndpoint = String(config.apiEndpoint);
         if (apiEndpoint.length() > 0) {
             bool isHttps = apiEndpoint.startsWith("https://");
@@ -242,39 +259,13 @@ void loop() {
             }
             http.end();
         }
-
-        delay(60000);
-    } else {
-        delay(30000);
-    }
-
-        delay(60000);
-    } else {
-        delay(30000);
-    }
-
-            if (httpResponseCode > 0) {
-                String response = http.getString();
-                Serial.println(httpResponseCode);
-                Serial.println(response);
-                logger.log("Data sent successfully: " + payload);
-            } else {
-                Serial.print("Error on sending POST: ");
-                Serial.println(httpResponseCode);
-                logger.log("Error sending data: " + String(httpResponseCode));
-            }
-
-            http.end();
-        }
-
-        delay(60000); // Read and upload data every 60 seconds
-    } else {
-      delay(30000); // Wait 30s to see if connected and has time
     }
 }
 
 String getTime() {
-  timeClient.update();
+  if (WiFi.status() == WL_CONNECTED) {
+    timeClient.update();
+  }
   time_t now = timeClient.getEpochTime();
   struct tm* timeinfo = localtime(&now);
   char buffer[20];
