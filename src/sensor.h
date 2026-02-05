@@ -19,6 +19,7 @@ public:
 
 private:
     std::vector<SensorInterface*> sensors;
+    void selectI2CChannel(int channel);
 };
 
 #endif // SENSOR_H
