@@ -1,20 +1,22 @@
 {
   "name": "Calid ESP",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "builds": [
     {
       "chipFamily": "ESP32",
       "parts": [
-        { "path": "bin/esp32/firmware.bin", "offset": 65536 },
-        { "path": "bin/esp32/partitions.bin", "offset": 32768 },
         { "path": "bin/esp32/bootloader.bin", "offset": 4096 },
-        { "path": "bin/esp32/boot_app0.bin", "offset": 57344 }
+        { "path": "bin/esp32/partitions.bin", "offset": 32768 },
+        { "path": "bin/esp32/boot_app0.bin", "offset": 57344 },
+        { "path": "bin/esp32/firmware.bin", "offset": 65536 },
+        { "path": "bin/esp32/littlefs.bin", "offset": 2686976 }
       ]
     },
     {
       "chipFamily": "ESP8266",
       "parts": [
-        { "path": "bin/esp8266/firmware.bin", "offset": 0 }
+        { "path": "bin/esp8266/firmware.bin", "offset": 0 },
+        { "path": "bin/esp8266/littlefs.bin", "offset": 1048576 }
       ]
     }
   ]

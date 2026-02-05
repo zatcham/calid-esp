@@ -6,13 +6,15 @@ export function Config() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [i2cDevices, setI2cDevices] = useState([]);
-  const [scanning, setScanning] = useState(false);
+  const [scanningI2C, setScanningI2C] = useState(false);
+  const [networks, setNetworks] = useState([]);
+  const [scanningWifi, setScanningWifi] = useState(false);
 
   useEffect(() => {
     api.getCurrentConfig().then(data => {
       if (data) {
           if (!data.sensors) {
-              data.sensors = Array(4).fill({ type: 0, pin: 0, i2cAddress: 0x76 });
+              data.sensors = Array(4).fill({ type: 0, pin: 0, i2cAddress: 0x76, i2cMultiplexerChannel: -1 });
           }
           setConfig(data);
       }
@@ -20,16 +22,33 @@ export function Config() {
     });
   }, []);
 
+  const scanWifi = async () => {
+    setScanningWifi(true);
+    try {
+        const res = await fetch('/api/wifi/scan');
+        const data = await res.json();
+        // Filter unique SSIDs and sort by RSSI
+        const unique = data.reduce((acc, curr) => {
+            if (!acc.find(x => x.ssid === curr.ssid)) acc.push(curr);
+            return acc;
+        }, []).sort((a, b) => b.rssi - a.rssi);
+        setNetworks(unique);
+    } catch (e) {
+        console.error("WiFi scan failed", e);
+    }
+    setScanningWifi(false);
+  };
+
   const scanI2C = async () => {
-    setScanning(true);
+    setScanningI2C(true);
     try {
         const res = await fetch('/api/system/scan-i2c');
         const addresses = await res.json();
         setI2cDevices(addresses);
     } catch (e) {
-        console.error("Scan failed", e);
+        console.error("I2C scan failed", e);
     }
-    setScanning(false);
+    setScanningI2C(false);
   };
 
   const handleChange = (e) => {
@@ -44,7 +63,7 @@ export function Config() {
       setConfig(prev => {
           const newSensors = [...prev.sensors];
           let val = value;
-          if (field === 'pin' || field === 'type') val = parseInt(value);
+          if (field === 'pin' || field === 'type' || field === 'i2cMultiplexerChannel') val = parseInt(value);
           newSensors[index] = { ...newSensors[index], [field]: val };
           return { ...prev, sensors: newSensors };
       });
@@ -67,6 +86,9 @@ export function Config() {
         submission[`sensorType${i}`] = s.type;
         submission[`sensorPin${i}`] = s.pin;
         submission[`sensorI2C${i}`] = s.i2cAddress;
+        submission[`sensorMux${i}`] = s.i2cMultiplexerChannel;
+        submission[`sensorTOff${i}`] = s.tempOffset;
+        submission[`sensorHOff${i}`] = s.humOffset;
     });
 
     submission.testingMode = config.testingMode ? "on" : "off";
@@ -89,12 +111,22 @@ export function Config() {
       <form onSubmit={handleSubmit}>
         
         <div class="card shadow-sm mb-4">
-            <div class="card-header bg-primary text-white">Network & API</div>
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <span>Network & API</span>
+                <button type="button" class="btn btn-sm btn-outline-light" onClick={scanWifi} disabled={scanningWifi}>
+                    {scanningWifi ? 'Scanning...' : 'Scan WiFi'}
+                </button>
+            </div>
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-6 mb-3">
                         <label class="form-label">WiFi SSID</label>
-                        <input type="text" class="form-control" name="ssid" value={config.ssid} onInput={handleChange} />
+                        <div class="input-group">
+                            <input type="text" class="form-control" name="ssid" value={config.ssid} onInput={handleChange} list="wifi-list" />
+                            <datalist id="wifi-list">
+                                {networks.map(net => <option value={net.ssid}>{net.rssi} dBm</option>)}
+                            </datalist>
+                        </div>
                     </div>
                     <div class="col-md-6 mb-3">
                         <label class="form-label">WiFi Password</label>
@@ -121,8 +153,8 @@ export function Config() {
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
                 <span>Sensor Hardware</span>
-                <button type="button" class="btn btn-sm btn-outline-light" onClick={scanI2C} disabled={scanning}>
-                    {scanning ? 'Scanning...' : 'Scan I2C Bus'}
+                <button type="button" class="btn btn-sm btn-outline-light" onClick={scanI2C} disabled={scanningI2C}>
+                    {scanningI2C ? 'Scanning...' : 'Scan I2C Bus'}
                 </button>
             </div>
             <div class="card-body">
@@ -139,6 +171,9 @@ export function Config() {
                                 <th>Type</th>
                                 <th>GPIO Pin</th>
                                 <th>I2C Address</th>
+                                <th>Mux Ch</th>
+                                <th>T-Off (&deg;C)</th>
+                                <th>H-Off (%)</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -160,6 +195,20 @@ export function Config() {
                                         <input type="text" class="form-control form-control-sm" value={sensor.i2cAddress} 
                                                disabled={sensor.type != 2}
                                                onInput={(e) => handleSensorChange(i, 'i2cAddress', e.target.value)} placeholder="0x76" />
+                                    </td>
+                                    <td>
+                                        <select class="form-select form-select-sm" value={sensor.i2cMultiplexerChannel} 
+                                                disabled={sensor.type != 2}
+                                                onChange={(e) => handleSensorChange(i, 'i2cMultiplexerChannel', e.target.value)}>
+                                            <option value="-1">None</option>
+                                            {[...Array(8)].map((_, i) => <option value={i}>Ch {i}</option>)}
+                                        </select>
+                                    </td>
+                                    <td>
+                                        <input type="number" step="0.1" class="form-control form-control-sm" value={sensor.tempOffset} onInput={(e) => handleSensorChange(i, 'tempOffset', e.target.value)} />
+                                    </td>
+                                    <td>
+                                        <input type="number" step="0.1" class="form-control form-control-sm" value={sensor.humOffset} onInput={(e) => handleSensorChange(i, 'humOffset', e.target.value)} />
                                     </td>
                                 </tr>
                             ))}
@@ -191,9 +240,18 @@ export function Config() {
                     <div class="card-header bg-dark text-white">Time & System</div>
                     <div class="card-body">
                         <div class="mb-3">
+                            <label class="form-label">NTP Server</label>
+                            <input type="text" class="form-control" name="ntpServer" value={config.ntpServer} onInput={handleChange} placeholder="pool.ntp.org" />
+                        </div>
+                        <div class="mb-3">
                             <label class="form-label">NTP UTC Offset (seconds)</label>
                             <input type="number" class="form-control" name="utcOffset" value={config.utcOffset} onInput={handleChange} />
                             <div class="form-text">e.g. 3600 for UTC+1, -18000 for EST.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Firmware Update URL</label>
+                            <input type="text" class="form-control" name="firmwareUrl" value={config.firmwareUrl} onInput={handleChange} placeholder="http://domain.com/firmware.bin" />
+                            <div class="form-text">URL for remote OTA updates via MQTT.</div>
                         </div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" name="testingMode" checked={config.testingMode} onChange={handleCheckboxChange} />
