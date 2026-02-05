@@ -3,7 +3,11 @@
 Logger::Logger(const char* logFileName) : logFileName(logFileName) {}
 
 void Logger::begin() {
+    #ifdef ESP32
+    if (!LittleFS.begin(true)) {
+    #else
     if (!LittleFS.begin()) {
+    #endif
         Serial.println("Failed to mount file system");
         return;
     }
