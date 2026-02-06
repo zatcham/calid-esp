@@ -48,7 +48,7 @@ bool Config::load() {
     int i = 0;
     for (JsonObject s : sensorsArr) {
         if (i >= MAX_SENSORS) break;
-        sensors[i].type = s["type"] | 0;
+        strlcpy(sensors[i].type, s["type"] | "none", sizeof(sensors[i].type));
         sensors[i].pin = s["pin"] | 0;
         sensors[i].i2cAddress = s["i2cAddress"] | 0x76;
         sensors[i].i2cMultiplexerChannel = s["i2cMultiplexerChannel"] | -1;

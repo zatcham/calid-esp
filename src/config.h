@@ -8,10 +8,10 @@
 #define CONFIG_FILE "/config.json"
 
 struct SensorConfig {
-    int type = 0; // 0: None, 11: DHT11, 22: DHT22, 2: BME280
+    char type[32] = "none"; // Matches backend strings like 'dht22', 'bme280', etc.
     int pin = 0;
-    int i2cAddress = 0x76; // For BME280
-    int i2cMultiplexerChannel = -1; // -1: None, 0-7: TCA9548A channel
+    int i2cAddress = 0x76; 
+    int i2cMultiplexerChannel = -1; 
     float tempOffset = 0.0f;
     float humOffset = 0.0f;
 };
