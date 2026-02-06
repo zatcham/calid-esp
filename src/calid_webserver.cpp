@@ -1,9 +1,13 @@
-#include "webserver.h"
+#include "calid_webserver.h"
 #include "config.h"
 #include "sensor.h" 
 #include "logging.h"
 #include <LittleFS.h>
+#if defined(ESP8266)
+#include <Updater.h>
+#else
 #include <Update.h>
+#endif
 #include <ArduinoJson.h>
 #include <Wire.h>
 #if defined(ESP8266)
@@ -16,9 +20,9 @@
 
 const byte DNS_PORT = 53;
 
-WebServer::WebServer() : server(80) {}
+CalidWebServer::CalidWebServer() : server(80) {}
 
-void WebServer::begin() {
+void CalidWebServer::begin() {
     if (WiFi.getMode() == WIFI_AP) {
         dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
     }
@@ -31,6 +35,31 @@ void WebServer::begin() {
         MDNS.addService("http", "tcp", 80);
     }
 
+    // Captive Portal Redirect
+    server.onNotFound([this](AsyncWebServerRequest *request) {
+        if (WiFi.getMode() == WIFI_AP) {
+            String url = request->url();
+            String host = request->host();
+            
+            // Common OS check paths for Captive Portal detection
+            if (url.indexOf("generate_204") > -1 || 
+                url.indexOf("hotspot-detect.html") > -1 || 
+                url.indexOf("connectivity-check") > -1 ||
+                url.indexOf("ncsi.txt") > -1 ||
+                (host != "192.168.4.1" && !host.endsWith(".local"))) {
+                
+                request->redirect("http://192.168.4.1/config");
+                return;
+            }
+        }
+        
+        if (request->method() == HTTP_OPTIONS) {
+            request->send(200);
+        } else {
+            request->send(LittleFS, "/index.html");
+        }
+    });
+
     // API Endpoints
     server.on("/api/config", HTTP_POST, [this](AsyncWebServerRequest *request) { this->handleApiConfigSave(request); });
     server.on("/api/config", HTTP_GET, [this](AsyncWebServerRequest *request) { this->handleApiConfigGet(request); });
@@ -38,6 +67,7 @@ void WebServer::begin() {
     server.on("/api/logs", HTTP_GET, [this](AsyncWebServerRequest *request) { this->handleApiLogs(request); });
     server.on("/api/system", HTTP_GET, [this](AsyncWebServerRequest *request) { this->handleApiSystem(request); });
     server.on("/api/system/scan-i2c", HTTP_GET, [this](AsyncWebServerRequest *request) { this->handleApiScanI2C(request); });
+    server.on("/api/wifi/scan", HTTP_GET, [this](AsyncWebServerRequest *request) { this->handleApiWifiScan(request); });
 
     // Serve Static Files (Frontend)
     server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
@@ -56,19 +86,10 @@ void WebServer::begin() {
         this->handleUpdateUpload(request, filename, index, data, len, final);
     });
 
-    // Catch-All for SPA
-    server.onNotFound([](AsyncWebServerRequest *request) {
-        if (request->method() == HTTP_OPTIONS) {
-            request->send(200);
-        } else {
-            request->send(LittleFS, "/index.html");
-        }
-    });
-
     server.begin();
 }
 
-void WebServer::handleClient() {
+void CalidWebServer::handleClient() {
     if (WiFi.getMode() == WIFI_AP) {
         dnsServer.processNextRequest();
     }
@@ -77,7 +98,7 @@ void WebServer::handleClient() {
     #endif
 }
 
-bool WebServer::authenticate(AsyncWebServerRequest *request) {
+bool CalidWebServer::authenticate(AsyncWebServerRequest *request) {
     if (strlen(config.adminPassword) == 0) return true; // No password set
     if (!request->authenticate(config.adminUser, config.adminPassword)) {
         request->requestAuthentication();
@@ -86,7 +107,7 @@ bool WebServer::authenticate(AsyncWebServerRequest *request) {
     return true;
 }
 
-void WebServer::handleApiConfigSave(AsyncWebServerRequest *request) {
+void CalidWebServer::handleApiConfigSave(AsyncWebServerRequest *request) {
     if (!authenticate(request)) return;
 
     if (request->hasParam("ssid", true)) strlcpy(config.ssid, request->getParam("ssid", true)->value().c_str(), sizeof(config.ssid));
@@ -102,15 +123,23 @@ void WebServer::handleApiConfigSave(AsyncWebServerRequest *request) {
     if (request->hasParam("adminPassword", true) && request->getParam("adminPassword", true)->value().length() > 0) {
         strlcpy(config.adminPassword, request->getParam("adminPassword", true)->value().c_str(), sizeof(config.adminPassword));
     }
+    if (request->hasParam("ntpServer", true)) strlcpy(config.ntpServer, request->getParam("ntpServer", true)->value().c_str(), sizeof(config.ntpServer));
+    if (request->hasParam("firmwareUrl", true)) strlcpy(config.firmwareUrl, request->getParam("firmwareUrl", true)->value().c_str(), sizeof(config.firmwareUrl));
 
     // Multi-sensor config
     for (int i = 0; i < MAX_SENSORS; i++) {
         String typeKey = "sensorType" + String(i);
         String pinKey = "sensorPin" + String(i);
         String i2cKey = "sensorI2C" + String(i);
-        if (request->hasParam(typeKey, true)) config.sensors[i].type = request->getParam(typeKey, true)->value().toInt();
+        String muxKey = "sensorMux" + String(i);
+        String tOffKey = "sensorTOff" + String(i);
+        String hOffKey = "sensorHOff" + String(i);
+        if (request->hasParam(typeKey, true)) strlcpy(config.sensors[i].type, request->getParam(typeKey, true)->value().c_str(), sizeof(config.sensors[i].type));
         if (request->hasParam(pinKey, true)) config.sensors[i].pin = request->getParam(pinKey, true)->value().toInt();
         if (request->hasParam(i2cKey, true)) config.sensors[i].i2cAddress = strtol(request->getParam(i2cKey, true)->value().c_str(), NULL, 0);
+        if (request->hasParam(muxKey, true)) config.sensors[i].i2cMultiplexerChannel = request->getParam(muxKey, true)->value().toInt();
+        if (request->hasParam(tOffKey, true)) config.sensors[i].tempOffset = request->getParam(tOffKey, true)->value().toFloat();
+        if (request->hasParam(hOffKey, true)) config.sensors[i].humOffset = request->getParam(hOffKey, true)->value().toFloat();
     }
 
     if(request->hasParam("mqttBroker", true)) strlcpy(config.mqttBroker, request->getParam("mqttBroker", true)->value().c_str(), sizeof(config.mqttBroker));
@@ -126,7 +155,7 @@ void WebServer::handleApiConfigSave(AsyncWebServerRequest *request) {
     ESP.restart();
 }
 
-void WebServer::handleApiConfigGet(AsyncWebServerRequest *request) {
+void CalidWebServer::handleApiConfigGet(AsyncWebServerRequest *request) {
     if (!authenticate(request)) return;
 
     JsonDocument doc;
@@ -138,6 +167,8 @@ void WebServer::handleApiConfigGet(AsyncWebServerRequest *request) {
     doc["testingMode"] = config.testingMode;
     doc["utcOffset"] = config.utcOffset;
     doc["adminUser"] = config.adminUser;
+    doc["ntpServer"] = config.ntpServer;
+    doc["firmwareUrl"] = config.firmwareUrl;
 
     JsonArray sensorsArr = doc["sensors"].to<JsonArray>();
     for (int i = 0; i < MAX_SENSORS; i++) {
@@ -145,6 +176,9 @@ void WebServer::handleApiConfigGet(AsyncWebServerRequest *request) {
         s["type"] = config.sensors[i].type;
         s["pin"] = config.sensors[i].pin;
         s["i2cAddress"] = config.sensors[i].i2cAddress;
+        s["i2cMultiplexerChannel"] = config.sensors[i].i2cMultiplexerChannel;
+        s["tempOffset"] = config.sensors[i].tempOffset;
+        s["humOffset"] = config.sensors[i].humOffset;
     }
 
     doc["mqttBroker"] = config.mqttBroker;
@@ -158,7 +192,7 @@ void WebServer::handleApiConfigGet(AsyncWebServerRequest *request) {
     request->send(200, "application/json", json);
 }
 
-void WebServer::handleApiData(AsyncWebServerRequest *request) {
+void CalidWebServer::handleApiData(AsyncWebServerRequest *request) {
     JsonDocument doc;
     JsonArray sensorsArr = doc["sensors"].to<JsonArray>();
     for (int i = 0; i < activeSensorCount; i++) {
@@ -181,7 +215,7 @@ void WebServer::handleApiData(AsyncWebServerRequest *request) {
     request->send(200, "application/json", json);
 }
 
-void WebServer::handleApiLogs(AsyncWebServerRequest *request) {
+void CalidWebServer::handleApiLogs(AsyncWebServerRequest *request) {
     if (!authenticate(request)) return;
     if (LittleFS.exists("/log.txt")) {
         request->send(LittleFS, "/log.txt", "text/plain");
@@ -190,11 +224,15 @@ void WebServer::handleApiLogs(AsyncWebServerRequest *request) {
     }
 }
 
-void WebServer::handleApiSystem(AsyncWebServerRequest *request) {
+void CalidWebServer::handleApiSystem(AsyncWebServerRequest *request) {
+    SystemHealth health = config.getSystemHealth();
     JsonDocument doc;
     doc["adoptionCode"] = config.getAdoptionCode();
     doc["macAddress"] = WiFi.macAddress();
-    doc["freeHeap"] = ESP.getFreeHeap();
+    doc["freeHeap"] = health.freeHeap;
+    doc["uptime"] = health.uptime;
+    doc["rssi"] = health.rssi;
+    doc["resetReason"] = health.resetReason;
     doc["sdkVersion"] = ESP.getSdkVersion();
     #ifdef ESP32
     doc["chipModel"] = ESP.getChipModel();
@@ -208,7 +246,7 @@ void WebServer::handleApiSystem(AsyncWebServerRequest *request) {
     request->send(200, "application/json", json);
 }
 
-void WebServer::handleApiScanI2C(AsyncWebServerRequest *request) {
+void CalidWebServer::handleApiScanI2C(AsyncWebServerRequest *request) {
     if (!authenticate(request)) return;
     JsonDocument doc;
     JsonArray addresses = doc.to<JsonArray>();
@@ -227,10 +265,40 @@ void WebServer::handleApiScanI2C(AsyncWebServerRequest *request) {
     request->send(200, "application/json", json);
 }
 
-void WebServer::handleUpdateUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+void CalidWebServer::handleApiWifiScan(AsyncWebServerRequest *request) {
+    if (!authenticate(request)) return;
+    
+    int n = WiFi.scanNetworks();
+    JsonDocument doc;
+    JsonArray networks = doc.to<JsonArray>();
+    
+    for (int i = 0; i < n; ++i) {
+        JsonObject net = networks.add<JsonObject>();
+        net["ssid"] = WiFi.SSID(i);
+        net["rssi"] = WiFi.RSSI(i);
+        #ifdef ESP32
+        net["secure"] = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+        #else
+        net["secure"] = WiFi.encryptionType(i) != ENC_TYPE_NONE;
+        #endif
+    }
+    
+    String json;
+    serializeJson(doc, json);
+    request->send(200, "application/json", json);
+    WiFi.scanDelete();
+}
+
+void CalidWebServer::handleUpdateUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
     if (!index) {
         Serial.printf("Update Start: %s\n", filename.c_str());
+        
+        #ifdef ESP32
+        int cmd = (filename.indexOf("fs") > -1 || filename.indexOf("data") > -1) ? U_SPIFFS : U_FLASH;
+        #else
         int cmd = (filename.indexOf("fs") > -1 || filename.indexOf("data") > -1) ? U_FS : U_FLASH;
+        #endif
+
         #ifdef ESP8266
         Update.runAsync(true);
         if (!Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000, cmd)) {

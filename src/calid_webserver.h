@@ -9,9 +9,9 @@
 #include <ESPAsyncWebServer.h>
 #include <DNSServer.h>
 
-class WebServer {
+class CalidWebServer {
 public:
-    WebServer();
+    CalidWebServer();
     void begin();
     void handleClient();
 
@@ -26,6 +26,7 @@ private:
     void handleApiData(AsyncWebServerRequest *request);
     void handleApiSystem(AsyncWebServerRequest *request);
     void handleApiScanI2C(AsyncWebServerRequest *request);
+    void handleApiWifiScan(AsyncWebServerRequest *request);
     
     // Auth
     bool authenticate(AsyncWebServerRequest *request);
