@@ -182,10 +182,42 @@ export function Config() {
                                     <td>{i+1}</td>
                                     <td>
                                         <select class="form-select form-select-sm" value={sensor.type} onChange={(e) => handleSensorChange(i, 'type', e.target.value)}>
-                                            <option value="0">Disabled</option>
-                                            <option value="11">DHT11</option>
-                                            <option value="22">DHT22</option>
-                                            <option value="2">BME280</option>
+                                            <option value="none">Disabled</option>
+                                            <optgroup label="Temperature & Humidity">
+                                                <option value="dht11">DHT11</option>
+                                                <option value="dht22">DHT22</option>
+                                                <option value="ds18b20">DS18B20</option>
+                                                <option value="bme280">BME280</option>
+                                                <option value="bmp280">BMP280</option>
+                                                <option value="sht31">SHT31</option>
+                                                <option value="lm35">LM35 (Analog)</option>
+                                                <option value="tmp36">TMP36 (Analog)</option>
+                                            </optgroup>
+                                            <optgroup label="Air Quality">
+                                                <option value="mq2">MQ2 (Smoke/Gas)</option>
+                                                <option value="mq135">MQ135 (Air Quality)</option>
+                                                <option value="ccs811">CCS811 (CO2/VOC)</option>
+                                                <option value="scd40">SCD40 (CO2)</option>
+                                                <option value="pms5003">PMS5003 (PM2.5)</option>
+                                            </optgroup>
+                                            <optgroup label="Light & Proximity">
+                                                <option value="bh1750">BH1750 (Lux)</option>
+                                                <option value="tsl2561">TSL2561</option>
+                                                <option value="ldr">LDR (Analog)</option>
+                                                <option value="hc_sr04">HC-SR04 (Ultrasonic)</option>
+                                                <option value="pir">PIR (Motion)</option>
+                                                <option value="vl53l0x">VL53L0X (Laser Range)</option>
+                                            </optgroup>
+                                            <optgroup label="Soil & Water">
+                                                <option value="soil_moisture">Soil Moisture</option>
+                                                <option value="water_level">Water Level</option>
+                                                <option value="ph_sensor">pH Sensor</option>
+                                                <option value="tds_meter">TDS Meter</option>
+                                            </optgroup>
+                                            <optgroup label="Other">
+                                                <option value="relay">Relay (Output)</option>
+                                                <option value="custom">Custom</option>
+                                            </optgroup>
                                         </select>
                                     </td>
                                     <td>
