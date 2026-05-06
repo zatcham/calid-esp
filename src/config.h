@@ -10,6 +10,8 @@
 struct SensorConfig {
     char type[32] = "none"; // Matches backend strings like 'dht22', 'bme280', etc.
     int pin = 0;
+    char pinIdentifier[16] = ""; // e.g. GPIO4
+    char sensorId[64] = ""; // API logical sensor unique_id
     int i2cAddress = 0x76; 
     int i2cMultiplexerChannel = -1; 
     float tempOffset = 0.0f;
@@ -29,7 +31,10 @@ struct Config {
     char apiEndpoint[128] = "";
     char sensorId[32] = "ESP-Device";
     char apiKey[64] = "";
+    char mqttClientId[64] = "";
+    char hardwareId[64] = "";
     bool testingMode = false;
+    int reportingInterval = 60;
     
     // Auth
     char adminUser[32] = "admin";
@@ -49,6 +54,7 @@ struct Config {
     char mqttPassword[32] = "";
     char mqttTopicPrefix[32] = "calid";
     bool mqttEnabled = true;
+    char currentFirmwareVersion[32] = "";
 
     bool load();
     bool save();

@@ -36,7 +36,10 @@ bool Config::load() {
     strlcpy(apiEndpoint, doc["apiEndpoint"] | "", sizeof(apiEndpoint));
     strlcpy(sensorId, doc["sensorId"] | "ESP-Device", sizeof(sensorId));
     strlcpy(apiKey, doc["apiKey"] | "", sizeof(apiKey));
+    strlcpy(mqttClientId, doc["mqttClientId"] | "", sizeof(mqttClientId));
+    strlcpy(hardwareId, doc["hardwareId"] | "", sizeof(hardwareId));
     testingMode = doc["testingMode"] | false;
+    reportingInterval = doc["reportingInterval"] | 60;
     
     strlcpy(adminUser, doc["adminUser"] | "admin", sizeof(adminUser));
     strlcpy(adminPassword, doc["adminPassword"] | "admin", sizeof(adminPassword));
@@ -50,6 +53,8 @@ bool Config::load() {
         if (i >= MAX_SENSORS) break;
         strlcpy(sensors[i].type, s["type"] | "none", sizeof(sensors[i].type));
         sensors[i].pin = s["pin"] | 0;
+        strlcpy(sensors[i].pinIdentifier, s["pinIdentifier"] | "", sizeof(sensors[i].pinIdentifier));
+        strlcpy(sensors[i].sensorId, s["sensorId"] | "", sizeof(sensors[i].sensorId));
         sensors[i].i2cAddress = s["i2cAddress"] | 0x76;
         sensors[i].i2cMultiplexerChannel = s["i2cMultiplexerChannel"] | -1;
         sensors[i].tempOffset = s["tempOffset"] | 0.0f;
@@ -63,6 +68,15 @@ bool Config::load() {
     strlcpy(mqttPassword, doc["mqttPassword"] | "", sizeof(mqttPassword));
     strlcpy(mqttTopicPrefix, doc["mqttTopicPrefix"] | "calid", sizeof(mqttTopicPrefix));
     mqttEnabled = doc.containsKey("mqttEnabled") ? doc["mqttEnabled"].as<bool>() : true;
+    strlcpy(currentFirmwareVersion, doc["currentFirmwareVersion"] | "", sizeof(currentFirmwareVersion));
+
+    if (strlen(mqttClientId) == 0) {
+        strlcpy(mqttClientId, sensorId, sizeof(mqttClientId));
+    }
+    if (strlen(hardwareId) == 0) {
+        String mac = WiFi.macAddress();
+        strlcpy(hardwareId, mac.c_str(), sizeof(hardwareId));
+    }
 
     return true;
 }
@@ -74,18 +88,24 @@ bool Config::save() {
     doc["apiEndpoint"] = apiEndpoint;
     doc["sensorId"] = sensorId;
     doc["apiKey"] = apiKey;
+    doc["mqttClientId"] = mqttClientId;
+    doc["hardwareId"] = hardwareId;
     doc["testingMode"] = testingMode;
+    doc["reportingInterval"] = reportingInterval;
     doc["adminUser"] = adminUser;
     doc["adminPassword"] = adminPassword;
     doc["utcOffset"] = utcOffset;
     doc["ntpServer"] = ntpServer;
     doc["firmwareUrl"] = firmwareUrl;
+    doc["currentFirmwareVersion"] = currentFirmwareVersion;
 
     JsonArray sensorsArr = doc["sensors"].to<JsonArray>();
     for (int i = 0; i < MAX_SENSORS; i++) {
         JsonObject s = sensorsArr.add<JsonObject>();
         s["type"] = sensors[i].type;
         s["pin"] = sensors[i].pin;
+        s["pinIdentifier"] = sensors[i].pinIdentifier;
+        s["sensorId"] = sensors[i].sensorId;
         s["i2cAddress"] = sensors[i].i2cAddress;
         s["i2cMultiplexerChannel"] = sensors[i].i2cMultiplexerChannel;
         s["tempOffset"] = sensors[i].tempOffset;

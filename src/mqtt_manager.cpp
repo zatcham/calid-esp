@@ -1,5 +1,7 @@
 #include "mqtt_manager.h"
 #include <Arduino.h>
+#include <ArduinoJson.h>
+#include <time.h>
 #if defined(ESP8266)
 #include <ESP8266WiFi.h>
 #else
@@ -53,8 +55,8 @@ void MqttManager::reconnect() {
     
     String clientId = "CalidESP-";
     clientId += config.getAdoptionCode();
-
-    String statusTopic = "sensors/" + String(config.sensorId) + "/status";
+    const String deviceId = getDeviceIdentifier();
+    String statusTopic = "devices/" + deviceId + "/status";
     
     // Connect with LWT (Last Will and Testament)
     if (client.connect(clientId.c_str(), config.mqttUser, config.mqttPassword, 
@@ -62,13 +64,19 @@ void MqttManager::reconnect() {
         Serial.println("connected");
         
         // Publish online status
-        client.publish(statusTopic.c_str(), "online", true);
+        publishStatus("online");
         
-        // Subscribe to commands
-        String commandTopic = "sensors/" + String(config.sensorId) + "/commands";
+        // Subscribe to device commands/config (API protocol)
+        String commandTopic = "devices/" + deviceId + "/commands";
+        String configTopic = "devices/" + deviceId + "/config";
         client.subscribe(commandTopic.c_str());
+        client.subscribe(configTopic.c_str());
+
+        // Backward compatibility with legacy topic
+        String legacyCommandTopic = "sensors/" + getLegacySensorId() + "/commands";
+        client.subscribe(legacyCommandTopic.c_str());
         
-        Serial.printf("Subscribed to %s\n", commandTopic.c_str());
+        Serial.printf("Subscribed to %s, %s and %s\n", commandTopic.c_str(), configTopic.c_str(), legacyCommandTopic.c_str());
     } else {
         Serial.print("failed, rc=");
         Serial.print(client.state());
@@ -77,13 +85,57 @@ void MqttManager::reconnect() {
 }
 
 void MqttManager::publishTelemetry(const char* payload) {
-    String topic = "sensors/" + String(config.sensorId) + "/telemetry";
+    String topic = "sensors/" + getLegacySensorId() + "/telemetry";
     publishRaw(topic.c_str(), payload);
 }
 
 void MqttManager::publishStatus(const char* status) {
-    String topic = "sensors/" + String(config.sensorId) + "/status";
-    publishRaw(topic.c_str(), status, true);
+    JsonDocument statusDoc;
+    statusDoc["status"] = status;
+    statusDoc["timestamp"] = time(nullptr);
+    statusDoc["device_id"] = getDeviceIdentifier();
+    statusDoc["firmware_version"] = config.currentFirmwareVersion;
+
+    String payload;
+    serializeJson(statusDoc, payload);
+
+    String topic = "devices/" + getDeviceIdentifier() + "/status";
+    publishRaw(topic.c_str(), payload.c_str(), true);
+
+    // Legacy status topic
+    String legacyTopic = "sensors/" + getLegacySensorId() + "/status";
+    publishRaw(legacyTopic.c_str(), status, true);
+}
+
+void MqttManager::publishAck(const String& commandId, const String& status, const String& details) {
+    JsonDocument ackDoc;
+    ackDoc["command_id"] = commandId;
+    ackDoc["status"] = status;
+    ackDoc["details"] = details;
+    ackDoc["timestamp"] = time(nullptr);
+
+    String payload;
+    serializeJson(ackDoc, payload);
+
+    String topic = "devices/" + getDeviceIdentifier() + "/ack";
+    publishRaw(topic.c_str(), payload.c_str());
+}
+
+void MqttManager::publishOtaStatus(const String& status, int progress, const String& version) {
+    JsonDocument otaDoc;
+    otaDoc["status"] = status;
+    if (progress >= 0) {
+        otaDoc["progress"] = progress;
+    }
+    if (version.length() > 0) {
+        otaDoc["version"] = version;
+    }
+    otaDoc["timestamp"] = time(nullptr);
+
+    String payload;
+    serializeJson(otaDoc, payload);
+    String topic = "devices/" + getDeviceIdentifier() + "/ota/status";
+    publishRaw(topic.c_str(), payload.c_str());
 }
 
 void MqttManager::publishRaw(const char* topic, const char* payload, bool retained) {
@@ -110,4 +162,20 @@ void MqttManager::internalCallback(char* topic, byte* payload, unsigned int leng
 
 bool MqttManager::isConnected() {
     return client.connected();
+}
+
+String MqttManager::getLegacySensorId() const {
+    return String(config.sensorId);
+}
+
+String MqttManager::getDeviceIdentifier() const {
+    if (strlen(config.mqttClientId) > 0) {
+        return String(config.mqttClientId);
+    }
+
+    if (strlen(config.sensorId) > 0) {
+        return String(config.sensorId);
+    }
+
+    return config.getAdoptionCode();
 }
