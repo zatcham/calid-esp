@@ -63,7 +63,7 @@ export function Config() {
       setConfig(prev => {
           const newSensors = [...prev.sensors];
           let val = value;
-          if (field === 'pin' || field === 'type' || field === 'i2cMultiplexerChannel') val = parseInt(value);
+          if (field === 'pin' || field === 'i2cMultiplexerChannel') val = parseInt(value);
           newSensors[index] = { ...newSensors[index], [field]: val };
           return { ...prev, sensors: newSensors };
       });
@@ -85,6 +85,8 @@ export function Config() {
     config.sensors.forEach((s, i) => {
         submission[`sensorType${i}`] = s.type;
         submission[`sensorPin${i}`] = s.pin;
+        submission[`sensorPinIdentifier${i}`] = s.pinIdentifier || '';
+        submission[`sensorUniqueId${i}`] = s.sensorId || '';
         submission[`sensorI2C${i}`] = s.i2cAddress;
         submission[`sensorMux${i}`] = s.i2cMultiplexerChannel;
         submission[`sensorTOff${i}`] = s.tempOffset;
@@ -147,6 +149,20 @@ export function Config() {
                         <input type="text" class="form-control" name="apiKey" value={config.apiKey} onInput={handleChange} />
                     </div>
                 </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">MQTT Client ID (Provisioning)</label>
+                        <input type="text" class="form-control" name="mqttClientId" value={config.mqttClientId || ''} onInput={handleChange} />
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Hardware ID</label>
+                        <input type="text" class="form-control" name="hardwareId" value={config.hardwareId || ''} onInput={handleChange} />
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Reporting Interval (seconds)</label>
+                    <input type="number" class="form-control" name="reportingInterval" value={config.reportingInterval || 60} onInput={handleChange} min="5" />
+                </div>
             </div>
         </div>
 
@@ -172,12 +188,16 @@ export function Config() {
                                 <th>GPIO Pin</th>
                                 <th>I2C Address</th>
                                 <th>Mux Ch</th>
+                                <th>API Sensor ID</th>
                                 <th>T-Off (&deg;C)</th>
                                 <th>H-Off (%)</th>
                             </tr>
                         </thead>
                         <tbody>
                             {config.sensors.map((sensor, i) => (
+                                (() => {
+                                    const isI2CType = ['bme280', 'bmp280', 'sht31', 'ccs811', 'scd40', 'bh1750', 'tsl2561', 'vl53l0x'].includes(sensor.type);
+                                    return (
                                 <tr key={i}>
                                     <td>{i+1}</td>
                                     <td>
@@ -225,16 +245,19 @@ export function Config() {
                                     </td>
                                     <td>
                                         <input type="text" class="form-control form-control-sm" value={sensor.i2cAddress} 
-                                               disabled={sensor.type != 2}
+                                               disabled={!isI2CType}
                                                onInput={(e) => handleSensorChange(i, 'i2cAddress', e.target.value)} placeholder="0x76" />
                                     </td>
                                     <td>
                                         <select class="form-select form-select-sm" value={sensor.i2cMultiplexerChannel} 
-                                                disabled={sensor.type != 2}
+                                                disabled={!isI2CType}
                                                 onChange={(e) => handleSensorChange(i, 'i2cMultiplexerChannel', e.target.value)}>
                                             <option value="-1">None</option>
                                             {[...Array(8)].map((_, i) => <option value={i}>Ch {i}</option>)}
                                         </select>
+                                    </td>
+                                    <td>
+                                        <input type="text" class="form-control form-control-sm" value={sensor.sensorId || ''} onInput={(e) => handleSensorChange(i, 'sensorId', e.target.value)} />
                                     </td>
                                     <td>
                                         <input type="number" step="0.1" class="form-control form-control-sm" value={sensor.tempOffset} onInput={(e) => handleSensorChange(i, 'tempOffset', e.target.value)} />
@@ -243,6 +266,8 @@ export function Config() {
                                         <input type="number" step="0.1" class="form-control form-control-sm" value={sensor.humOffset} onInput={(e) => handleSensorChange(i, 'humOffset', e.target.value)} />
                                     </td>
                                 </tr>
+                                    );
+                                })()
                             ))}
                         </tbody>
                     </table>

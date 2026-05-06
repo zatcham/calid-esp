@@ -115,6 +115,9 @@ void CalidWebServer::handleApiConfigSave(AsyncWebServerRequest *request) {
     if (request->hasParam("apiEndpoint", true)) strlcpy(config.apiEndpoint, request->getParam("apiEndpoint", true)->value().c_str(), sizeof(config.apiEndpoint));
     if (request->hasParam("sensorId", true)) strlcpy(config.sensorId, request->getParam("sensorId", true)->value().c_str(), sizeof(config.sensorId));
     if (request->hasParam("apiKey", true)) strlcpy(config.apiKey, request->getParam("apiKey", true)->value().c_str(), sizeof(config.apiKey));
+    if (request->hasParam("mqttClientId", true)) strlcpy(config.mqttClientId, request->getParam("mqttClientId", true)->value().c_str(), sizeof(config.mqttClientId));
+    if (request->hasParam("hardwareId", true)) strlcpy(config.hardwareId, request->getParam("hardwareId", true)->value().c_str(), sizeof(config.hardwareId));
+    if (request->hasParam("reportingInterval", true)) config.reportingInterval = request->getParam("reportingInterval", true)->value().toInt();
     
     config.testingMode = (request->hasParam("testingMode", true) && (request->getParam("testingMode", true)->value() == "on" || request->getParam("testingMode", true)->value() == "true"));
     
@@ -134,12 +137,16 @@ void CalidWebServer::handleApiConfigSave(AsyncWebServerRequest *request) {
         String muxKey = "sensorMux" + String(i);
         String tOffKey = "sensorTOff" + String(i);
         String hOffKey = "sensorHOff" + String(i);
+        String sensorIdKey = "sensorUniqueId" + String(i);
+        String pinIdentifierKey = "sensorPinIdentifier" + String(i);
         if (request->hasParam(typeKey, true)) strlcpy(config.sensors[i].type, request->getParam(typeKey, true)->value().c_str(), sizeof(config.sensors[i].type));
         if (request->hasParam(pinKey, true)) config.sensors[i].pin = request->getParam(pinKey, true)->value().toInt();
         if (request->hasParam(i2cKey, true)) config.sensors[i].i2cAddress = strtol(request->getParam(i2cKey, true)->value().c_str(), NULL, 0);
         if (request->hasParam(muxKey, true)) config.sensors[i].i2cMultiplexerChannel = request->getParam(muxKey, true)->value().toInt();
         if (request->hasParam(tOffKey, true)) config.sensors[i].tempOffset = request->getParam(tOffKey, true)->value().toFloat();
         if (request->hasParam(hOffKey, true)) config.sensors[i].humOffset = request->getParam(hOffKey, true)->value().toFloat();
+        if (request->hasParam(sensorIdKey, true)) strlcpy(config.sensors[i].sensorId, request->getParam(sensorIdKey, true)->value().c_str(), sizeof(config.sensors[i].sensorId));
+        if (request->hasParam(pinIdentifierKey, true)) strlcpy(config.sensors[i].pinIdentifier, request->getParam(pinIdentifierKey, true)->value().c_str(), sizeof(config.sensors[i].pinIdentifier));
     }
 
     if(request->hasParam("mqttBroker", true)) strlcpy(config.mqttBroker, request->getParam("mqttBroker", true)->value().c_str(), sizeof(config.mqttBroker));
@@ -164,6 +171,10 @@ void CalidWebServer::handleApiConfigGet(AsyncWebServerRequest *request) {
     doc["apiEndpoint"] = config.apiEndpoint;
     doc["sensorId"] = config.sensorId;
     doc["apiKey"] = config.apiKey;
+    doc["mqttClientId"] = config.mqttClientId;
+    doc["hardwareId"] = config.hardwareId;
+    doc["reportingInterval"] = config.reportingInterval;
+    doc["currentFirmwareVersion"] = config.currentFirmwareVersion;
     doc["testingMode"] = config.testingMode;
     doc["utcOffset"] = config.utcOffset;
     doc["adminUser"] = config.adminUser;
@@ -175,6 +186,8 @@ void CalidWebServer::handleApiConfigGet(AsyncWebServerRequest *request) {
         JsonObject s = sensorsArr.add<JsonObject>();
         s["type"] = config.sensors[i].type;
         s["pin"] = config.sensors[i].pin;
+        s["pinIdentifier"] = config.sensors[i].pinIdentifier;
+        s["sensorId"] = config.sensors[i].sensorId;
         s["i2cAddress"] = config.sensors[i].i2cAddress;
         s["i2cMultiplexerChannel"] = config.sensors[i].i2cMultiplexerChannel;
         s["tempOffset"] = config.sensors[i].tempOffset;
@@ -229,6 +242,10 @@ void CalidWebServer::handleApiSystem(AsyncWebServerRequest *request) {
     JsonDocument doc;
     doc["adoptionCode"] = config.getAdoptionCode();
     doc["macAddress"] = WiFi.macAddress();
+    doc["mqttClientId"] = config.mqttClientId;
+    doc["hardwareId"] = config.hardwareId;
+    doc["reportingInterval"] = config.reportingInterval;
+    doc["firmwareVersion"] = config.currentFirmwareVersion;
     doc["freeHeap"] = health.freeHeap;
     doc["uptime"] = health.uptime;
     doc["rssi"] = health.rssi;
