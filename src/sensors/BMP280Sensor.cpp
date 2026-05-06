@@ -4,8 +4,7 @@ BMP280Sensor::BMP280Sensor(int pin, int i2cAddress) : _pin(pin), _i2cAddress(i2c
 
 void BMP280Sensor::begin() {
     if (!bmp.begin(_i2cAddress)) { 
-        Serial.printf("Could not find a valid BMP280 sensor at 0x%02X!
-", _i2cAddress);
+        Serial.printf("Could not find a valid BMP280 sensor at 0x%02X!\n", _i2cAddress);
     }
 }
 
